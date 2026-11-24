@@ -28,6 +28,32 @@ class ConfigTest < Minitest::Test
     end
   end
 
+  def test_rails_credentials_in_other_environments_do_not_boot_the_app
+    yaml = <<~YAML
+      development:
+        adapter: postgresql
+        database: app_development
+      staging:
+        adapter: postgresql
+        password: <%= Rails.application.credentials.db&.fetch(:password) %>
+    YAML
+    with_database_yml(yaml) do |root|
+      # No config/environment.rb exists, so booting would raise LoadError.
+      assert_equal "app_development", DbTools.adapter(root: root).database
+    end
+  end
+
+  def test_rails_credentials_in_development_boot_the_app
+    yaml = <<~YAML
+      development:
+        adapter: postgresql
+        database: <%= Rails.application.credentials.db_name %>
+    YAML
+    with_database_yml(yaml) do |root|
+      assert_raises(LoadError) { DbTools.adapter(root: root) }
+    end
+  end
+
   def test_multi_database_apps_snapshot_the_primary_database
     yaml = <<~YAML
       development:

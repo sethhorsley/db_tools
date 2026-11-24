@@ -38,7 +38,17 @@ module DbTools
     path = File.join(root, "config", "database.yml")
     raise Error, "No config/database.yml in #{root}" unless File.exist?(path)
 
-    config = YAML.safe_load(render_erb(path, root), aliases: true)&.fetch("development", nil)
+    source = File.read(path)
+    config = begin
+      development_section(ERB.new(source).result(Stubs.module_eval("binding")))
+    rescue NameError
+      UNRESOLVED
+    end
+    if config.to_s.include?(UNRESOLVED)
+      # The development database references the app (e.g. Rails credentials): boot it and try again.
+      require File.join(root, "config", "environment")
+      config = development_section(ERB.new(source).result)
+    end
     raise Error, "config/database.yml has no development database" unless config.is_a?(Hash)
 
     # Multi-database apps nest each database under a name; snapshot the primary one.
@@ -46,12 +56,18 @@ module DbTools
     config
   end
 
-  def self.render_erb(path, root)
-    ERB.new(File.read(path)).result
-  rescue NameError
-    # The YAML references the app (e.g. Rails credentials): boot it and try again.
-    require File.join(root, "config", "environment")
-    ERB.new(File.read(path)).result
+  def self.development_section(yaml)
+    YAML.safe_load(yaml, aliases: true)&.fetch("development", nil)
+  end
+
+  UNRESOLVED = "__db_tools_unresolved__"
+
+  # Stands in for Rails while rendering database.yml, so other environments'
+  # credentials don't force booting the app (seconds) just to read development.
+  module Stubs
+    Rails = BasicObject.new
+    def Rails.method_missing(*) = self
+    def Rails.to_s = UNRESOLVED
   end
 
   # Runs a command without a shell and returns its stdout, raising on failure.
