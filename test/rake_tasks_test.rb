@@ -44,6 +44,14 @@ class RakeTasksTest < Minitest::Test
     refute error.success?
   end
 
+  # `rails -T` shows arg_names, so list must not advertise a name it ignores.
+  def test_only_commands_that_take_a_name_accept_one
+    assert_empty @rake["db:snapshot:list"].arg_names
+    %w[create restore delete].each do |command|
+      assert_equal [:name], @rake["db:snapshot:#{command}"].arg_names
+    end
+  end
+
   def test_db_snapshot_alone_prints_help_in_rake_syntax
     out, = invoke("db:snapshot")
     assert_includes out, "rails db:snapshot:<command>[name]"

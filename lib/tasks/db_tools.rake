@@ -12,7 +12,7 @@ namespace :db do
       delete: "Delete a snapshot"
     }.each do |command, description|
       desc description
-      task command, [:name] do |_task, args|
+      task command, (command == :list) ? [] : [:name] do |_task, args|
         abort "db:snapshot only works in development (Rails.env is #{Rails.env})." unless Rails.env.development?
 
         DbTools::Snapshot.new(DbTools.adapter(root: Rails.root.to_s)).run([command.to_s, args[:name]].compact)
