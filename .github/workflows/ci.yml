@@ -1,0 +1,136 @@
+name: Tests
+
+on:
+  pull_request:
+    branches:
+      - "*"
+  push:
+    branches:
+      - main
+  workflow_call:
+
+jobs:
+  lint:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+          ruby-version: "4.0"
+
+      - name: StandardRb check
+        run: bundle exec standardrb
+
+  sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: ["3.3", "3.4", "4.0"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler: default
+          bundler-cache: true
+          rubygems: latest
+
+      - name: Database client
+        run: sqlite3 --version
+
+      - name: Run tests
+        env:
+          RUBYOPT: "--enable-frozen-string-literal"
+        run: bundle exec rake test
+
+  postgres:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: ["3.3", "3.4", "4.0"]
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: --health-cmd="pg_isready -U postgres" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    # psql, used by both the adapter and the tests, reads these.
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: password
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler: default
+          bundler-cache: true
+          rubygems: latest
+
+      - name: Database client
+        run: psql --version && psql -d postgres -c "SELECT version()"
+
+      - name: Run tests
+        env:
+          REQUIRE_DB: postgresql
+          RUBYOPT: "--enable-frozen-string-literal"
+        run: bundle exec rake test
+
+  mysql:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: ["3.3", "3.4", "4.0"]
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: test
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler: default
+          bundler-cache: true
+          rubygems: latest
+
+      # mysql and mysqldump, used by both the adapter and the tests, read ~/.my.cnf.
+      - name: Database client
+        run: |
+          printf '[client]\nhost=127.0.0.1\nport=3306\nuser=root\npassword=password\n' > ~/.my.cnf
+          mysql --version && mysql -e "SELECT version()"
+
+      - name: Run tests
+        env:
+          REQUIRE_DB: mysql
+          RUBYOPT: "--enable-frozen-string-literal"
+        run: bundle exec rake test

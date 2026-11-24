@@ -11,6 +11,8 @@ class MysqlTest < Minitest::Test
   def setup
     DbTools.run("mysql", "-e", "SELECT 1")
   rescue DbTools::Error => e
+    # CI sets REQUIRE_DB so a broken service fails the job instead of skipping.
+    flunk "MySQL isn't reachable: #{e.message}" if ENV["REQUIRE_DB"] == "mysql"
     skip "MySQL isn't reachable: #{e.message}"
   else
     DbTools.run("mysql", "-e", "CREATE DATABASE #{DATABASE}")

@@ -11,6 +11,8 @@ class PostgresqlTest < Minitest::Test
   def setup
     DbTools.run("psql", "-X", "-d", "postgres", "-c", "SELECT 1")
   rescue DbTools::Error => e
+    # CI sets REQUIRE_DB so a broken service fails the job instead of skipping.
+    flunk "PostgreSQL isn't reachable: #{e.message}" if ENV["REQUIRE_DB"] == "postgresql"
     skip "PostgreSQL isn't reachable: #{e.message}"
   else
     admin("CREATE DATABASE #{DATABASE}")
