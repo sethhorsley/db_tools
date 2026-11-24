@@ -21,6 +21,8 @@ end
 $ db s
 Usage: db snapshot <command> [name]      (alias: db s)
 
+  status               Show the database and whether it changed since the last snapshot
+  diff [name]          Summarize what changed, per table, since the last snapshot (or name)
   list                 List snapshots of the development database
   create [name]        Save a snapshot (name defaults to a timestamp)
   restore <name>       Replace the development database with a snapshot
@@ -41,6 +43,30 @@ Saved current database as "auto-before-restore".
 Restored app_development from "good_state" (1.1s). The snapshot is kept.
 ```
 
+`status` and `diff` compare the database with the snapshot most recently
+created or restored (or the snapshot you name):
+
+```
+$ db s status
+Database:       app_development
+Tables:         79 (4,402,190 rows)
+Last snapshot:  good_state (2026-11-24 15:20)
+Changed:        yes, 2 tables. Run `db s diff` for a summary.
+
+$ db s diff
+Changes in app_development since snapshot "good_state" (2026-11-24 15:20):
+
+  TABLE       BEFORE         NOW  CHANGE
+  orders       1,204       1,206  +2 rows
+  users       44,481      44,481  rows edited
+
+2 tables changed. BEFORE and NOW are row counts.
+```
+
+The comparison uses a row count and checksum per table, so it says which
+tables changed and by how many rows, not which rows. On MySQL, snapshots made
+before db_tools 0.2.0 can't be compared.
+
 Restoring always saves the current database as `auto-before-restore` first, so
 `db s restore auto-before-restore` undoes a restore.
 
@@ -48,6 +74,8 @@ The same commands are available as Rails tasks:
 
 ```
 rails db:snapshot                       # help
+rails db:snapshot:status
+rails db:snapshot:diff[good_state]
 rails db:snapshot:list
 rails db:snapshot:create[good_state]
 rails db:snapshot:restore[good_state]

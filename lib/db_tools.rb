@@ -40,7 +40,7 @@ module DbTools
 
     source = File.read(path)
     config = begin
-      development_section(ERB.new(source).result(Stubs.module_eval("binding")))
+      development_section(ERB.new(source).result(Stubs.module_eval("binding", __FILE__, __LINE__)))
     rescue NameError
       UNRESOLVED
     end
@@ -67,7 +67,13 @@ module DbTools
   module Stubs
     Rails = BasicObject.new
     def Rails.method_missing(*) = self
+    def Rails.respond_to_missing?(*) = true
     def Rails.to_s = UNRESOLVED
+  end
+
+  # Where snapshot files and bookkeeping live: tmp/, so Rails ignores them.
+  def self.snapshot_directory(root, database)
+    File.join(root, "tmp", "db_snapshots", File.basename(database, ".*"))
   end
 
   # Runs a command without a shell and returns its stdout, raising on failure.

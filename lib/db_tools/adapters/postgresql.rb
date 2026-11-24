@@ -8,9 +8,10 @@ module DbTools
       SEPARATOR = "__snap__"
       MAX_NAME_BYTES = 63
 
-      attr_reader :database
+      attr_reader :root, :database
 
-      def initialize(config, _root)
+      def initialize(config, root)
+        @root = root
         @database = config.fetch("database")
         @env = {
           "PGHOST" => config["host"],
@@ -45,6 +46,29 @@ module DbTools
 
       def delete(name)
         psql("DROP DATABASE #{ident(prefix + name)} WITH (FORCE)")
+      end
+
+      # Row count and a checksum per table, of the development database or of
+      # a snapshot. The checksum sums each row's xmin (the transaction that
+      # wrote it) rather than hashing contents: any insert, update or delete
+      # changes it, it reads ~10x faster, and copies made with TEMPLATE keep
+      # xmin, so a snapshot matches the database it was taken from.
+      def fingerprint(name = nil)
+        db = name ? prefix + name : database
+        tables = psql(<<~SQL, database: db).lines.map { |line| line.chomp.split("|", 2) }
+          SELECT CASE WHEN schemaname = 'public' THEN tablename ELSE schemaname || '.' || tablename END,
+                 format('%I.%I', schemaname, tablename)
+          FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+        SQL
+        return {} if tables.empty?
+
+        sql = tables.map do |table, qualified|
+          "SELECT count(*), coalesce(sum(xmin::text::bigint), 0), #{literal(table)} FROM #{qualified}"
+        end.join(" UNION ALL ")
+        psql(sql, database: db).lines.to_h do |line|
+          count, sum, table = line.chomp.split("|", 3)
+          [table, [count.to_i, sum]]
+        end
       end
 
       private
@@ -85,9 +109,9 @@ module DbTools
 
       # Each statement runs separately (CREATE/DROP DATABASE can't run in a
       # transaction) but in one session, so SET applies to what follows.
-      def psql(*statements)
+      def psql(*statements, database: "postgres")
         DbTools.run(
-          "psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", "postgres",
+          "psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", database,
           *statements.flat_map { |sql| ["-c", sql] },
           env: env
         )

@@ -34,7 +34,7 @@ module DbTools
       private
 
       def directory
-        File.join(root, "tmp", "db_snapshots", File.basename(database, ".*"))
+        DbTools.snapshot_directory(root, database)
       end
 
       def path(name)

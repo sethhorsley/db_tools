@@ -13,7 +13,29 @@ module DbTools
         @database = config.fetch("database")
       end
 
+      # Row count and a SHA3 of the contents per table, of the development
+      # database or of a snapshot file. sha3_query is built into the sqlite3 shell.
+      def fingerprint(name = nil)
+        file = name ? path(name) : database_path
+        tables = DbTools.run("sqlite3", "-readonly", file,
+          "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").lines.map(&:chomp)
+        return {} if tables.empty?
+
+        sql = tables.map do |table|
+          ident = %("#{table.gsub('"', '""')}")
+          "SELECT (SELECT count(*) FROM #{ident}), hex(sha3_query(#{literal("SELECT * FROM #{ident}")})), #{literal(table)}"
+        end.join(" UNION ALL ")
+        DbTools.run("sqlite3", "-readonly", file, sql).lines.to_h do |line|
+          count, hash, table = line.chomp.split("|", 3)
+          [table, [count.to_i, hash]]
+        end
+      end
+
       private
+
+      def literal(value)
+        "'#{value.gsub("'", "''")}'"
+      end
 
       def extension
         ".sqlite3"

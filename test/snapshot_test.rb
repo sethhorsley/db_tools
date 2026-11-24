@@ -4,12 +4,17 @@ class SnapshotTest < Minitest::Test
   # Records what the snapshot commands ask storage to do, so these tests
   # cover the decisions (names, safety copy, refusals) independent of a database.
   class FakeAdapter
-    attr_reader :calls
+    attr_reader :calls, :root
+    attr_accessor :fingerprints
 
-    def initialize(existing = [])
+    def initialize(existing = [], root: Dir.mktmpdir)
       @snapshots = existing.to_h { |name| [name, Time.now] }
       @calls = []
+      @root = root
+      @fingerprints = {}
     end
+
+    def fingerprint(name = nil) = fingerprints[name]
 
     def database = "app_development"
 
@@ -102,6 +107,47 @@ class SnapshotTest < Minitest::Test
   def test_list_with_no_snapshots_says_how_to_make_one
     snapshot(FakeAdapter.new).list
     assert_includes @out.string, "No snapshots of app_development yet"
+  end
+
+  def test_status_without_snapshots_says_how_to_make_one
+    adapter = FakeAdapter.new
+    adapter.fingerprints[nil] = {"items" => [1200, "a"], "users" => [3, "b"]}
+    snapshot(adapter).status
+
+    assert_match(/Tables:\s+2 \(1,203 rows\)/, @out.string)
+    assert_includes @out.string, "Last snapshot:  none"
+  end
+
+  def test_diff_labels_each_kind_of_change
+    adapter = FakeAdapter.new(["good_state"])
+    adapter.fingerprints["good_state"] = {"same" => [1, "a"], "grew" => [1, "a"], "edited" => [2, "a"], "dropped" => [1, "a"]}
+    adapter.fingerprints[nil] = {"same" => [1, "a"], "grew" => [3, "b"], "edited" => [2, "b"], "created" => [5, "a"]}
+    snapshot(adapter).diff
+
+    assert_match(/created\s+-\s+5\s+table added/, @out.string)
+    assert_match(/dropped\s+1\s+-\s+table removed/, @out.string)
+    assert_match(/edited\s+2\s+2\s+rows edited/, @out.string)
+    assert_match(/grew\s+1\s+3\s+\+2 rows/, @out.string)
+    refute_match(/^\s+same/, @out.string)
+    assert_includes @out.string, "4 tables changed."
+  end
+
+  def test_status_compares_with_the_snapshot_last_created_or_restored
+    adapter = FakeAdapter.new(["older", "newer"])
+    adapter.fingerprints.merge!("older" => {"t" => [1, "a"]}, "newer" => {"t" => [2, "b"]}, nil => {"t" => [1, "a"]})
+    snapshot(adapter).restore("older")
+    snapshot(adapter).status
+
+    assert_match(/Last snapshot:\s+older.*\nChanged:\s+no/, @out.string)
+  end
+
+  def test_snapshots_without_a_fingerprint_are_reported_not_compared
+    adapter = FakeAdapter.new(["old_dump"])
+    adapter.fingerprints[nil] = {"t" => [1, "a"]}
+    snapshot(adapter).status
+
+    assert_match(/Changed:\s+unknown/, @out.string)
+    assert_raises(DbTools::Error) { snapshot(adapter).diff }
   end
 
   def test_unknown_subcommand_prints_help

@@ -31,6 +31,26 @@ module RoundTrip
     end
   end
 
+  def test_status_and_diff_report_changes_since_the_last_snapshot
+    query("INSERT INTO items (name) VALUES ('kept')")
+    db(root, "s", "create", "good_state")
+    assert_match(/Changed:\s+no/, db(root, "s", "status"))
+    assert_includes db(root, "s", "diff"), "No changes"
+
+    query("INSERT INTO items (name) VALUES ('added later')")
+    assert_match(/Changed:\s+yes, 1 table/, db(root, "s", "status"))
+    assert_match(/items\s+1\s+2\s+\+1 row/, db(root, "s", "diff"))
+
+    query("UPDATE items SET name = 'edited' WHERE name = 'kept'")
+    assert_match(/items\s+1\s+2\s+\+1 row/, db(root, "s", "diff"))
+    query("DELETE FROM items WHERE name = 'added later'")
+    assert_match(/items\s+1\s+1\s+rows edited/, db(root, "s", "diff"))
+
+    # A restore makes the restored snapshot the baseline, not the safety copy.
+    db(root, "s", "restore", "good_state")
+    assert_match(/Last snapshot:\s+good_state.*\nChanged:\s+no/, db(root, "s", "status"))
+  end
+
   def test_list_and_delete
     db(root, "s", "create", "first")
     db(root, "s", "create", "second")
