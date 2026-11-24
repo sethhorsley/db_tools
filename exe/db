@@ -1,0 +1,5 @@
+#!/usr/bin/env ruby
+
+require_relative "../lib/db_tools"
+
+exit DbTools::CLI.run(ARGV)
